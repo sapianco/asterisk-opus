@@ -1,7 +1,11 @@
 #Asterisk Opus/VP8 patch
 =======================
 
-Since Opus and VP8 cannot, as of now, be integrated in the Asterisk repositories (learn why in this [thread](http://lists.digium.com/pipermail/asterisk-dev/2013-May/060356.html)), we prepared a patch that adds support for both codecs (Opus transcoding, VP8 passthrough) to [Asterisk 11.1.2](http://downloads.asterisk.org/pub/telephony/asterisk/releases/).
+Since Opus and VP8 cannot, as of now, be integrated in the Asterisk repositories (learn why in this [thread](http://lists.digium.com/pipermail/asterisk-dev/2013-May/060356.html)), we prepared a patch that adds support for both codecs (Opus transcoding, VP8 passthrough).
+
+## Credit
+Initial 11.1.x work done by [meetecho](http://github.com/meetecho).
+Additional 11.4.x & 11.5.x patches produced by [netaskd](http://github.com/netaskd).
 
 ##Installing the patch
 To support Opus, you'll need to install [libopus](http://www.opus-codec.org/downloads/) first. No library is needed for VP8, as its support is passthrough only.
@@ -37,4 +41,5 @@ For VP8 you can make use of the open source softphone [Linphone](http://www.linp
 
 ##What is missing
 SDP fmtp parameters related to Opus and defined in [draft-ietf-payload-rtp-opus](http://tools.ietf.org/html/draft-ietf-payload-rtp-opus-00) are parsed but currently ignored: this means that there's no interaction between chan\_sip and codec\_opus in that sense. Besides, there still is no ad-hoc Opus configuration file for codec defaults. VP8, as anticipated, is passthrough only: besides, there's currently no way to read VP8 files for Playback.
+
 
