@@ -1,5 +1,5 @@
 #Asterisk Opus/VP8 patch
-=======================
+
 
 Since Opus and VP8 cannot, as of now, be integrated in the Asterisk repositories (learn why in this [thread](http://lists.digium.com/pipermail/asterisk-dev/2013-May/060356.html)), we prepared a patch that adds support for both codecs (Opus transcoding, VP8 passthrough).
 
