@@ -1,0 +1,435 @@
+diff -rua asterisk-11.10.2/build_tools/menuselect-deps.in asterisk-11.10.2-opus/build_tools/menuselect-deps.in
+--- asterisk-11.10.2/build_tools/menuselect-deps.in	2013-04-11 21:59:35.000000000 +0200
++++ asterisk-11.10.2-opus/build_tools/menuselect-deps.in	2014-08-18 12:30:39.484905805 +0200
+@@ -40,6 +40,7 @@
+ NEON29=@PBX_NEON29@
+ OGG=@PBX_OGG@
+ OPENH323=@PBX_OPENH323@
++OPUS=@PBX_OPUS@
+ OSPTK=@PBX_OSPTK@
+ OSS=@PBX_OSS@
+ PGSQL=@PBX_PGSQL@
+diff -rua asterisk-11.10.2/channels/chan_sip.c asterisk-11.10.2-opus/channels/chan_sip.c
+--- asterisk-11.10.2/channels/chan_sip.c	2014-06-13 07:10:30.000000000 +0200
++++ asterisk-11.10.2-opus/channels/chan_sip.c	2014-08-18 12:36:06.073924066 +0200
+@@ -7801,8 +7801,25 @@
+ 		break;
+ 	case AST_CONTROL_VIDUPDATE:	/* Request a video frame update */
+ 		if (p->vrtp && !p->novideo) {
+-			transmit_info_with_vidupdate(p);
+-			/* ast_rtcp_send_h261fur(p->vrtp); */
++			/* Only use this for WebRTC users */
++			struct ast_format_cap *fcap = ast_channel_nativeformats(ast);
++			struct ast_format vp8;
++			ast_format_set(&vp8, AST_FORMAT_VP8, 0);
++			if(ast_format_cap_iscompatible(fcap, &vp8)) {
++				sip_pvt_lock(p);
++				if (p->vrtp) {
++					ast_log(LOG_WARNING, "chan_sip, sending RTCP FIR to WebRTC user\n");
++					/* FIXME Fake RTP write, this will be sent as an RTCP packet */
++					struct ast_frame fr;
++					fr.frametype = AST_FRAME_CONTROL;
++					fr.subclass.integer = AST_CONTROL_VIDUPDATE;
++					res = ast_rtp_instance_write(p->vrtp, &fr);
++				}
++				sip_pvt_unlock(p);
++			} else {
++				transmit_info_with_vidupdate(p);
++				/* ast_rtcp_send_h261fur(p->vrtp); */
++			}
+ 		} else
+ 			res = -1;
+ 		break;
+@@ -11117,7 +11134,7 @@
+ 		struct ast_format *format;
+ 
+ 		if ((format = ast_rtp_codecs_get_payload_format(newaudiortp, codec))) {
+-			unsigned int bit_rate;
++			unsigned int bit_rate, value;
+ 
+ 			if (!ast_format_sdp_parse(format, fmtp_string)) {
+ 				found = TRUE;
+@@ -11156,6 +11173,53 @@
+ 					}
+ 				}
+ 				break;
++			/* Opus SDP fmtp parameters (draft-ietf-payload-rtp-opus-00) */
++			case AST_FORMAT_OPUS:
++				if (sscanf(fmtp_string, "maxplaybackrate=%30u", &value) == 1) {
++					ast_log(LOG_DEBUG, "Got Opus maxplaybackrate=%d\n", value);
++					/* TODO: actually handle this */
++					found = TRUE;
++				}
++				if (sscanf(fmtp_string, "sprop-maxcapturerate=%30u", &value) == 1) {
++					ast_log(LOG_DEBUG, "Got Opus sprop-maxcapturerate=%d\n", value);
++					/* TODO: actually handle this */
++					found = TRUE;
++				}
++				if (sscanf(fmtp_string, "minptime=%30u", &value) == 1) {
++					ast_log(LOG_DEBUG, "Got Opus minptime=%d\n", value);
++					/* TODO: actually handle this */
++					found = TRUE;
++				}
++				if (sscanf(fmtp_string, "maxaveragebitrate=%30u", &value) == 1) {
++					ast_log(LOG_DEBUG, "Got Opus maxaveragebitrate=%d\n", value);
++					/* TODO: actually handle this */
++					found = TRUE;
++				}
++				if (sscanf(fmtp_string, "stereo=%30u", &value) == 1) {
++					ast_log(LOG_DEBUG, "Got Opus stereo=%d\n", value);
++					/* TODO: actually handle this */
++					found = TRUE;
++				}
++				if (sscanf(fmtp_string, "sprop-stereo=%30u", &value) == 1) {
++					ast_log(LOG_DEBUG, "Got Opus sprop-stereo=%d\n", value);
++					/* TODO: actually handle this */
++					found = TRUE;
++				}
++				if (sscanf(fmtp_string, "cbr=%30u", &value) == 1) {
++					ast_log(LOG_DEBUG, "Got Opus cbr=%d\n", value);
++					/* TODO: actually handle this */
++					found = TRUE;
++				}
++				if (sscanf(fmtp_string, "useinbandfec=%30u", &value) == 1) {
++					ast_log(LOG_DEBUG, "Got Opus useinbandfec=%d\n", value);
++					/* TODO: actually handle this */
++					found = TRUE;
++				}
++				if (sscanf(fmtp_string, "usedtx=%30u", &value) == 1) {
++					ast_log(LOG_DEBUG, "Got Opus usedtx=%d\n", value);
++					/* TODO: actually handle this */
++					found = TRUE;
++				}
+ 			}
+ 		}
+ 	}
+@@ -11176,7 +11240,9 @@
+ 		/* We have a rtpmap to handle */
+ 		if (*last_rtpmap_codec < SDP_MAX_RTPMAP_CODECS) {
+ 			/* Note: should really look at the '#chans' params too */
+-			if (!strncasecmp(mimeSubtype, "H26", 3) || !strncasecmp(mimeSubtype, "MP4", 3)) {
++			if (!strncasecmp(mimeSubtype, "H26", 3)
++			 || !strncasecmp(mimeSubtype, "MP4", 3)
++			 || !strncasecmp(mimeSubtype, "VP8", 3)) {
+ 				if (!(ast_rtp_codecs_payloads_set_rtpmap_type_rate(newvideortp, NULL, codec, "video", mimeSubtype, 0, sample_rate))) {
+ 					if (debug)
+ 						ast_verbose("Found video description format %s for ID %u\n", mimeSubtype, codec);
+@@ -12773,7 +12839,11 @@
+ 	} else /* I don't see how you couldn't have p->rtp, but good to check for and error out if not there like earlier code */
+ 		return;
+ 	ast_str_append(m_buf, 0, " %d", rtp_code);
+-	ast_str_append(a_buf, 0, "a=rtpmap:%d %s/%u\r\n", rtp_code, mime, rate);
++	/* Opus mandates 2 channels in rtpmap */
++	if((int) format->id == AST_FORMAT_OPUS)
++		ast_str_append(a_buf, 0, "a=rtpmap:%d %s/%d/2\r\n", rtp_code, mime, rate);
++	else
++		ast_str_append(a_buf, 0, "a=rtpmap:%d %s/%d\r\n", rtp_code, mime, rate);
+ 
+ 	ast_format_sdp_generate(format, rtp_code, a_buf);
+ 
+@@ -12802,6 +12872,17 @@
+ 		/* Indicate that we only expect 64Kbps */
+ 		ast_str_append(a_buf, 0, "a=fmtp:%d bitrate=64000\r\n", rtp_code);
+ 		break;
++	/* Opus, pass parameters we care about (FIXME could this be 'fb' and not 'wb'?) */
++	case AST_FORMAT_OPUS:
++		ast_str_append(a_buf, 0, "a=maxptime:%d\r\n", 60);	/* FIXME */
++		ast_str_append(a_buf, 0, "a=fmtp:%d maxplaybackrate=%d; stereo=%d; sprop-stereo=%d; useinbandfec=%d\r\n",
++				rtp_code,
++				16000,	/* maxplaybackrate */
++				0,		/* stereo */
++				0,		/* sprop-stereo */
++				0		/* useinbandfec FIXME */
++		);
++		break;
+ 	}
+ 
+ 	if (fmt.cur_ms && (fmt.cur_ms < *min_packet_size))
+Only in asterisk-11.10.2-opus/codecs: codec_opus.c
+Only in asterisk-11.10.2-opus/codecs: ex_opus.h
+diff -rua asterisk-11.10.2/configure.ac asterisk-11.10.2-opus/configure.ac
+--- asterisk-11.10.2/configure.ac	2014-05-13 01:48:13.000000000 +0200
++++ asterisk-11.10.2-opus/configure.ac	2014-08-18 12:41:09.653941041 +0200
+@@ -422,6 +422,7 @@
+ AST_EXT_LIB_SETUP([NEWT], [newt], [newt])
+ AST_EXT_LIB_SETUP([OGG], [OGG], [ogg])
+ AST_EXT_LIB_SETUP([OPENR2], [MFR2], [openr2])
++AST_EXT_LIB_SETUP([OPUS], [Opus], [opus])
+ AST_EXT_LIB_SETUP([OSPTK], [OSP Toolkit], [osptk])
+ AST_EXT_LIB_SETUP([OSS], [Open Sound System], [oss])
+ AST_EXT_LIB_SETUP([PGSQL], [PostgreSQL], [postgres])
+@@ -2149,6 +2150,8 @@
+ 
+ AC_SUBST(PBX_SPEEX_PREPROCESS)
+ 
++AST_EXT_LIB_CHECK([OPUS], [opus], [opus_encoder_create], [opus/opus.h])
++
+ AST_EXT_LIB_CHECK([SQLITE], [sqlite], [sqlite_exec], [sqlite.h])
+ 
+ AST_EXT_LIB_CHECK([SQLITE3], [sqlite3], [sqlite3_open], [sqlite3.h], [${PTHREAD_LIBS}], [${PTHREAD_CFLAGS}])
+Only in asterisk-11.10.2-opus/formats: format_vp8.c
+diff -rua asterisk-11.10.2/include/asterisk/format.h asterisk-11.10.2-opus/include/asterisk/format.h
+--- asterisk-11.10.2/include/asterisk/format.h	2012-07-13 20:41:07.000000000 +0200
++++ asterisk-11.10.2-opus/include/asterisk/format.h	2014-08-18 12:43:12.437947907 +0200
+@@ -101,6 +101,8 @@
+ 	AST_FORMAT_SLINEAR192       = 27 + AST_FORMAT_TYPE_AUDIO,
+ 	AST_FORMAT_SPEEX32          = 28 + AST_FORMAT_TYPE_AUDIO,
+ 	AST_FORMAT_CELT             = 29 + AST_FORMAT_TYPE_AUDIO,
++	/*! Opus */
++	AST_FORMAT_OPUS             = 30 + AST_FORMAT_TYPE_AUDIO,
+ 
+ 	/*! H.261 Video */
+ 	AST_FORMAT_H261             = 1 + AST_FORMAT_TYPE_VIDEO,
+@@ -112,6 +114,8 @@
+ 	AST_FORMAT_H264             = 4 + AST_FORMAT_TYPE_VIDEO,
+ 	/*! MPEG4 Video */
+ 	AST_FORMAT_MP4_VIDEO        = 5 + AST_FORMAT_TYPE_VIDEO,
++	/*! VP8 */
++	AST_FORMAT_VP8              = 6 + AST_FORMAT_TYPE_VIDEO,
+ 
+ 	/*! JPEG Images */
+ 	AST_FORMAT_JPEG             = 1 + AST_FORMAT_TYPE_IMAGE,
+diff -rua asterisk-11.10.2/main/channel.c asterisk-11.10.2-opus/main/channel.c
+--- asterisk-11.10.2/main/channel.c	2014-05-10 00:28:40.000000000 +0200
++++ asterisk-11.10.2-opus/main/channel.c	2014-08-18 12:43:49.990950007 +0200
+@@ -914,6 +914,8 @@
+ 		AST_FORMAT_SPEEX32,
+ 		AST_FORMAT_SPEEX16,
+ 		AST_FORMAT_SPEEX,
++		/*! Opus */
++		AST_FORMAT_OPUS,
+ 		/*! SILK is pretty awesome. */
+ 		AST_FORMAT_SILK,
+ 		/*! CELT supports crazy high sample rates */
+diff -rua asterisk-11.10.2/main/format.c asterisk-11.10.2-opus/main/format.c
+--- asterisk-11.10.2/main/format.c	2014-05-10 00:28:40.000000000 +0200
++++ asterisk-11.10.2-opus/main/format.c	2014-08-18 12:49:02.164967462 +0200
+@@ -430,6 +430,9 @@
+ 	/*! SpeeX Wideband (16kHz) Free Compression */
+ 	case AST_FORMAT_SPEEX16:
+ 		return (1ULL << 33);
++	/*! Opus audio (8kHz, 16kHz, 24kHz, 48Khz) */
++	case AST_FORMAT_OPUS:
++		return (1ULL << 34);
+ 	/*! Raw mu-law data (G.711) */
+ 	case AST_FORMAT_TESTLAW:
+ 		return (1ULL << 47);
+@@ -449,6 +452,9 @@
+ 	/*! MPEG4 Video */
+ 	case AST_FORMAT_MP4_VIDEO:
+ 		return (1ULL << 22);
++	/*! VP8 Video */
++	case AST_FORMAT_VP8:
++		return (1ULL << 23);
+ 
+ 	/*! JPEG Images */
+ 	case AST_FORMAT_JPEG:
+@@ -532,6 +538,9 @@
+ 	/*! SpeeX Wideband (16kHz) Free Compression */
+ 	case (1ULL << 33):
+ 		return ast_format_set(dst, AST_FORMAT_SPEEX16, 0);
++	/*! Opus audio (8kHz, 16kHz, 24kHz, 48Khz) */
++	case (1ULL << 34):
++		return ast_format_set(dst, AST_FORMAT_OPUS, 0);
+ 	/*! Raw mu-law data (G.711) */
+ 	case (1ULL << 47):
+ 		return ast_format_set(dst, AST_FORMAT_TESTLAW, 0);
+@@ -551,6 +560,9 @@
+ 	/*! MPEG4 Video */
+ 	case (1ULL << 22):
+ 		return ast_format_set(dst, AST_FORMAT_MP4_VIDEO, 0);
++	/*! VP8 Video */
++	case (1ULL << 23):
++		return ast_format_set(dst, AST_FORMAT_VP8, 0);
+ 
+ 	/*! JPEG Images */
+ 	case (1ULL << 16):
+@@ -782,6 +794,9 @@
+ 			return samplerate;
+ 		}
+ 	}
++	/* Opus */
++	case AST_FORMAT_OPUS:
++		return 48000;
+ 	default:
+ 		return 8000;
+ 	}
+@@ -1071,7 +1086,11 @@
+ 	format_list_add_static(ast_format_set(&tmpfmt, AST_FORMAT_SLINEAR48, 0), "slin48", 48000, "16 bit Signed Linear PCM (48kHz)", 960, 10, 70, 10, 20, AST_SMOOTHER_FLAG_BE, 0);/*!< Signed linear (48kHz) */
+ 	format_list_add_static(ast_format_set(&tmpfmt, AST_FORMAT_SLINEAR96, 0), "slin96", 96000, "16 bit Signed Linear PCM (96kHz)", 1920, 10, 70, 10, 20, AST_SMOOTHER_FLAG_BE, 0);/*!< Signed linear (96kHz) */
+ 	format_list_add_static(ast_format_set(&tmpfmt, AST_FORMAT_SLINEAR192, 0), "slin192", 192000, "16 bit Signed Linear PCM (192kHz)", 3840, 10, 70, 10, 20, AST_SMOOTHER_FLAG_BE, 0);/*!< Signed linear (192kHz) */
+-
++	/* Opus (FIXME: real min is 3/5/10, real max is 120...) */
++	format_list_add_static(ast_format_set(&tmpfmt, AST_FORMAT_OPUS, 0), "opus", 48000, "Opus Codec", 10, 20, 60, 20, 20, 0, 0);   /*!< codec_opus.c */
++	/* VP8 (passthrough) */
++	format_list_add_static(ast_format_set(&tmpfmt, AST_FORMAT_VP8, 0), "vp8", 0, "VP8 Video", 0, 0, 0, 0 ,0 ,0, 0);         /*!< Passthrough support, see format_h263.c */
++	 
+ 	return 0;
+ }
+ 
+diff -rua asterisk-11.10.2/main/frame.c asterisk-11.10.2-opus/main/frame.c
+--- asterisk-11.10.2/main/frame.c	2014-05-10 00:28:40.000000000 +0200
++++ asterisk-11.10.2-opus/main/frame.c	2014-08-18 12:50:56.613973862 +0200
+@@ -1002,6 +1002,40 @@
+ 	return cnt;
+ }
+ 
++/* Opus: copied from opus_decoder.c */
++static int opus_samples(unsigned char *data, int len) {
++	/* Do opus_packet_get_nb_frames first */
++	int count, frames;
++	if (len<1) {
++		return 0;	/* FIXME OPUS_BAD_ARG */
++	} else {
++		count = data[0]&0x3;
++		if (count==0)
++			frames = 1;
++		else if (count!=3)
++			frames = 2;
++		else if (len<2)
++			return 0;	/* FIXME OPUS_INVALID_PACKET */
++		else
++			frames = data[1]&0x3F;
++	}
++	/* The, do a opus_packet_get_samples_per_frame */
++	int audiosize, Fs = 48000;
++	if (data[0]&0x80) {
++		audiosize = ((data[0]>>3)&0x3);
++		audiosize = (Fs<<audiosize)/400;
++	} else if ((data[0]&0x60) == 0x60) {
++		audiosize = (data[0]&0x08) ? Fs/50 : Fs/100;
++	} else {
++		audiosize = ((data[0]>>3)&0x3);
++		if (audiosize == 3)
++			audiosize = Fs*60/1000;
++		else
++			audiosize = (Fs<<audiosize)/100;
++	}
++	return frames*audiosize;
++}
++
+ int ast_codec_get_samples(struct ast_frame *f)
+ {
+ 	int samples = 0;
+@@ -1083,6 +1117,10 @@
+ 		/* TODO The assumes 20ms delivery right now, which is incorrect */
+ 		samples = ast_format_rate(&f->subclass.format) / 50;
+ 		break;
++	/* Opus */
++	case AST_FORMAT_OPUS:
++		samples = opus_samples(f->data.ptr, f->datalen);
++		break;
+ 	default:
+ 		ast_log(LOG_WARNING, "Unable to calculate samples for format %s\n", ast_getformatname(&f->subclass.format));
+ 	}
+diff -rua asterisk-11.10.2/main/rtp_engine.c asterisk-11.10.2-opus/main/rtp_engine.c
+--- asterisk-11.10.2/main/rtp_engine.c	2014-05-13 15:32:46.000000000 +0200
++++ asterisk-11.10.2-opus/main/rtp_engine.c	2014-08-18 12:52:32.933979248 +0200
+@@ -2309,7 +2309,10 @@
+ 	set_next_mime_type(ast_format_set(&tmpfmt, AST_FORMAT_SIREN7, 0), 0, "audio", "G7221", 16000);
+ 	set_next_mime_type(ast_format_set(&tmpfmt, AST_FORMAT_SIREN14, 0), 0, "audio", "G7221", 32000);
+ 	set_next_mime_type(ast_format_set(&tmpfmt, AST_FORMAT_G719, 0), 0, "audio", "G719", 48000);
+-
++	/* Opus and VP8 */
++	set_next_mime_type(ast_format_set(&tmpfmt, AST_FORMAT_OPUS, 0), 0,  "audio", "opus", 48000);
++	set_next_mime_type(ast_format_set(&tmpfmt, AST_FORMAT_VP8, 0), 0,  "video", "VP8", 90000);
++	 
+ 	/* Define the static rtp payload mappings */
+ 	add_static_payload(0, ast_format_set(&tmpfmt, AST_FORMAT_ULAW, 0), 0);
+ 	#ifdef USE_DEPRECATED_G726
+@@ -2350,6 +2353,9 @@
+ 	add_static_payload(118, ast_format_set(&tmpfmt, AST_FORMAT_SLINEAR16, 0), 0); /* 16 Khz signed linear */
+ 	add_static_payload(119, ast_format_set(&tmpfmt, AST_FORMAT_SPEEX32, 0), 0);
+ 	add_static_payload(121, NULL, AST_RTP_CISCO_DTMF);   /* Must be type 121 */
++	/* Opus and VP8 */
++	add_static_payload(100, ast_format_set(&tmpfmt, AST_FORMAT_VP8, 0), 0);
++	add_static_payload(107, ast_format_set(&tmpfmt, AST_FORMAT_OPUS, 0), 0);
+ 
+ 	return 0;
+ }
+diff -rua asterisk-11.10.2/makeopts.in asterisk-11.10.2-opus/makeopts.in
+--- asterisk-11.10.2/makeopts.in	2013-04-11 21:59:35.000000000 +0200
++++ asterisk-11.10.2-opus/makeopts.in	2014-08-18 12:52:53.301980387 +0200
+@@ -262,6 +262,9 @@
+ SPEEXDSP_INCLUDE=@SPEEXDSP_INCLUDE@
+ SPEEXDSP_LIB=@SPEEXDSP_LIB@
+ 
++OPUS_INCLUDE=@OPUS_INCLUDE@
++OPUS_LIB=@OPUS_LIB@
++
+ SQLITE_INCLUDE=@SQLITE_INCLUDE@
+ SQLITE_LIB=@SQLITE_LIB@
+ 
+diff -rua asterisk-11.10.2/res/res_rtp_asterisk.c asterisk-11.10.2-opus/res/res_rtp_asterisk.c
+--- asterisk-11.10.2/res/res_rtp_asterisk.c	2014-05-10 00:28:40.000000000 +0200
++++ asterisk-11.10.2-opus/res/res_rtp_asterisk.c	2014-08-18 12:56:22.317992074 +0200
+@@ -95,6 +95,8 @@
+ #define RTCP_PT_SDES    202
+ #define RTCP_PT_BYE     203
+ #define RTCP_PT_APP     204
++/* VP8: RTCP Feedback */
++#define RTCP_PT_PSFB    206
+ 
+ #define RTP_MTU		1200
+ #define DTMF_SAMPLE_RATE_MS    8 /*!< DTMF samples per millisecond */
+@@ -358,6 +360,9 @@
+ 	double normdevrtt;
+ 	double stdevrtt;
+ 	unsigned int rtt_count;
++
++	/* VP8: sequence number for the RTCP FIR FCI */
++	int firseq;
+ };
+ 
+ struct rtp_red {
+@@ -2853,6 +2858,41 @@
+ 		return 0;
+ 	}
+ 
++	/* VP8: is this a request to send a RTCP FIR? */
++	if(frame->frametype == AST_FRAME_CONTROL && frame->subclass.integer == AST_CONTROL_VIDUPDATE) {
++		ast_log(LOG_WARNING, "res_rtp_asterisk, requested to send a RTCP FIR packet to the peer\n");
++		struct ast_rtp *rtp = ast_rtp_instance_get_data(instance);
++		if (!rtp || !rtp->rtcp)
++			return 0;
++		unsigned int *rtcpheader;
++		char bdata[1024];
++		if (ast_sockaddr_isnull(&rtp->rtcp->them)) {
++			/*
++			 * RTCP was stopped.
++			 */
++			return 0;
++		}
++		/* Prepare RTCP FIR (PT=206, FMT=4) */
++		rtp->rtcp->firseq++;
++		if(rtp->rtcp->firseq == 256)
++			rtp->rtcp->firseq = 0;
++		int len = 20;
++		int ice;
++		rtcpheader = (unsigned int *)bdata;
++		rtcpheader[0] = htonl((2 << 30) | (4 << 24) | (RTCP_PT_PSFB << 16) | ((len/4)-1));
++		rtcpheader[1] = htonl(rtp->ssrc);
++		rtcpheader[2] = htonl(rtp->themssrc);
++		rtcpheader[3] = htonl(rtp->themssrc);	/* FCI: SSRC */
++		rtcpheader[4] = htonl(rtp->rtcp->firseq << 24);			/* FCI: Sequence number */
++		int res = rtcp_sendto(instance, (unsigned int *)rtcpheader, len, 0, &rtp->rtcp->them, &ice);
++		if (res < 0) {
++			ast_log(LOG_ERROR, "RTCP FIR transmission error: %s\n",strerror(errno));
++			return 0;
++		}
++		ast_log(LOG_WARNING, " >> RTCP FIR packet sent to the peer!\n");
++		return 0;
++	}
++
+ 	/* If there is no data length we can't very well send the packet */
+ 	if (!frame->datalen) {
+ 		ast_debug(1, "Received frame with no data for RTP instance '%p' so dropping frame\n", instance);
+@@ -2904,6 +2944,8 @@
+ 		case AST_FORMAT_SIREN7:
+ 		case AST_FORMAT_SIREN14:
+ 		case AST_FORMAT_G719:
++		/* Opus */
++		case AST_FORMAT_OPUS:
+ 			/* these are all frame-based codecs and cannot be safely run through
+ 			   a smoother */
+ 			break;
