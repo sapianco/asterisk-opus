@@ -57,6 +57,7 @@ struct opus_attr {
 	unsigned int dtx;
 	unsigned int spropmaxcapturerate;
 	unsigned int spropstereo;
+	unsigned int ptime;
 };
 
 static struct opus_attr default_opus_attr = {
@@ -68,6 +69,7 @@ static struct opus_attr default_opus_attr = {
 	.cbr                 = CODEC_OPUS_DEFAULT_CBR,
 	.fec                 = CODEC_OPUS_DEFAULT_FEC,
 	.dtx                 = CODEC_OPUS_DEFAULT_DTX,
+	.ptime               = CODEC_OPUS_DEFAULT_PTIME,
 };
 
 static void opus_destroy(struct ast_format *format)
@@ -333,6 +335,8 @@ static struct ast_format *opus_set(const struct ast_format *format, const char *
 		attr->spropmaxcapturerate = val;
 	} else if (!strcasecmp(name, "sprop_stereo")) {
 		attr->spropstereo = val;
+	} else if (!strcasecmp(name, "ptime")) {
+		attr->ptime = val;
 	} else {
 		ast_log(LOG_WARNING, "unknown attribute type %s\n", name);
 	}
